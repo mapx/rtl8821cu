@@ -165,7 +165,15 @@ typedef	spinlock_t	_lock;
 #else
 	typedef struct semaphore	_mutex;
 #endif
-typedef struct timer_list _timer;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+	typedef struct _drv_timer_list {
+		struct timer_list timer;
+		void (*callback)(void*);
+		void* cntx;
+	} _timer;
+#else
+	typedef struct timer_list _timer;
+#endif
 typedef struct completion _completion;
 
 struct	__queue	{
@@ -295,22 +303,41 @@ __inline static void rtw_list_delete(_list *plist)
 	list_del_init(plist);
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+__inline static void _timer_trampoline(struct timer_list *timer)
+{
+	_timer *ptimer = container_of(timer, _timer, timer);
+	ptimer->callback(ptimer->cntx);
+}
+#endif
+
 __inline static void _init_timer(_timer *ptimer, _nic_hdl nic_hdl, void *pfunc, void *cntx)
 {
-	 setup_timer(ptimer, pfunc,(u32)cntx);
-//	ptimer->function = pfunc;
-//	ptimer->data = (unsigned long)cntx;
-//	init_timer(ptimer);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+	ptimer->callback = pfunc;
+	ptimer->cntx = cntx;
+	timer_setup(&ptimer->timer, &_timer_trampoline, 0L);
+#else
+	setup_timer(ptimer, pfunc,(u32)cntx);
+#endif
 }
 
 __inline static void _set_timer(_timer *ptimer, u32 delay_time)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+	mod_timer(&ptimer->timer , (jiffies + (delay_time * HZ / 1000)));
+#else
 	mod_timer(ptimer , (jiffies + (delay_time * HZ / 1000)));
+#endif
 }
 
 __inline static void _cancel_timer(_timer *ptimer, u8 *bcancelled)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+	*bcancelled = del_timer_sync(&ptimer->timer) == 1 ? 1 : 0;
+#else
 	*bcancelled = del_timer_sync(ptimer) == 1 ? 1 : 0;
+#endif
 }
 
 static inline void _init_workitem(_workitem *pwork, void *pfunc, void *cntx)
